@@ -20,14 +20,14 @@ jobs:
           distribution: temurin
           java-version: "17"
       - run: pip install -r requirements.txt requests
-      - name: PC cloud engine (TRELLIS)
-        continue-on-error: true
-        run: python -c "from img23d import cloud; print(cloud.generate('tests/sample.png', 'TRELLIS'))"
       - name: Java client (same code as the Android app)
         run: |
           mkdir -p probe-out
           curl -sL -o json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
           java -cp json.jar mobile/android/app/src/main/java/com/pomos92/imageto3d/TrellisClient.java tests/sample.png probe-out/trellis.glb
+      - name: PC cloud engine (TRELLIS)
+        continue-on-error: true
+        run: python -c "from img23d import cloud; print(cloud.generate('tests/sample.png', 'TRELLIS'))"
       - name: Publish probe output
         if: always()
         run: |

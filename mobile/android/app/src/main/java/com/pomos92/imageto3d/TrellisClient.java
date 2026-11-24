@@ -116,7 +116,7 @@ public class TrellisClient {
                     JSONObject out = m.optJSONObject("output");
                     if (!m.optBoolean("success", true) || out == null || !out.has("data")) {
                         String err = out != null ? out.optString("error", "") : "";
-                        if (err.isEmpty() || "null".equals(err)) err = "알 수 없는 오류";
+                        if (err.isEmpty() || "null".equals(err)) err = "알 수 없는 오류 (" + m.toString().substring(0, Math.min(400, m.toString().length())) + ")";
                         if (err.contains("quota") || err.contains("GPU")) {
                             err += "\n→ 무료 사용량을 다 쓴 것 같아요. 설정에 Hugging Face 토큰을 넣거나 나중에 다시 해 보세요.";
                         }
