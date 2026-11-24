@@ -47,6 +47,19 @@ jobs:
         with:
           name: ImageTo3D-windows
           path: ImageTo3D-windows.zip
+      - name: Publish build to windows-build branch (main only)
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir out && cd out
+          split -b 90m -d -a 2 ../ImageTo3D-windows.zip ImageTo3D-windows.zip.part
+          sha256sum ../ImageTo3D-windows.zip | cut -d' ' -f1 > ImageTo3D-windows.zip.sha256
+          echo "${GITHUB_SHA}" > COMMIT
+          git init -q -b windows-build
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          git add -A && git commit -qm "Windows build ${GITHUB_SHA}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${GITHUB_REPOSITORY}" windows-build
       - name: Release (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
