@@ -179,10 +179,43 @@ public class TrellisClient {
         return null;
     }
 
+    /**
+     * 세션 유지용 하트비트. TRELLIS 는 세션이 끊기면(unload) 작업 폴더를 지워 버리므로
+     * gradio_client 처럼 작업 내내 /heartbeat/{session} 연결을 열어 둔다.
+     */
+    private Thread startHeartbeat() {
+        Thread t = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    HttpURLConnection hb = open(api + "/heartbeat/" + session, "GET");
+                    hb.setReadTimeout(0);
+                    InputStream in = hb.getInputStream();
+                    byte[] buf = new byte[1024];
+                    while (!Thread.currentThread().isInterrupted() && in.read(buf) >= 0) { }
+                    hb.disconnect();
+                } catch (Exception e) {
+                    try { Thread.sleep(1000); } catch (InterruptedException ie) { return; }
+                }
+            }
+        });
+        t.setDaemon(true);
+        t.start();
+        return t;
+    }
+
     /** 이미지(PNG/JPG 바이트) → 색이 입혀진 GLB 바이트 */
     public byte[] generate(byte[] image, String filename, Progress p) throws Exception {
         p.update("AI 서버에 연결 중...");
         connect();
+        Thread hb = startHeartbeat();
+        try {
+            return generateInner(image, filename, p);
+        } finally {
+            hb.interrupt();
+        }
+    }
+
+    private byte[] generateInner(byte[] image, String filename, Progress p) throws Exception {
         try { run("start_session", new JSONArray(), p, null); } catch (Exception ignored) { }
 
         p.update("사진 올리는 중...");
