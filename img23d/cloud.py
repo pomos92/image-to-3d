@@ -5,8 +5,8 @@ HF 토큰(무료 가입 후 발급)을 넣으면 사용 한도가 늘어난다.
 
 공개 Space 는 운영자가 API 를 바꾸기도 하므로, 여러 모델을 순서대로 시도한다.
   1) TRELLIS (Microsoft)      - 품질 좋음, 텍스처 포함 GLB
-  2) Hunyuan3D-2 (Tencent)    - 형태 품질 좋음
-  3) TripoSR (Stability/Tripo) - 빠름
+  2) Hunyuan3D-2 (Tencent)    - 형태 품질 좋음 (현재 색 없이 흰색 형태만)
+  3) TripoSR (Stability/Tripo) - 빠름 (2026-11 기준 서버 고장)
 """
 from __future__ import annotations
 
@@ -84,8 +84,8 @@ def _trellis(image_path: str, token: str | None, log: Callable[[str], None]) -> 
     except Exception as e:  # 전처리 실패해도 원본으로 계속
         log(f"TRELLIS 전처리 건너뜀: {e}")
         img = handle_file(image_path)
-    log("TRELLIS: 3D 생성 중 (보통 30초~2분)...")
-    c.predict(
+    log("TRELLIS: 3D 생성 중 (보통 20초~1분)...")
+    res = c.predict(
         image=img,
         multiimages=[],
         seed=_seed(),
@@ -94,10 +94,10 @@ def _trellis(image_path: str, token: str | None, log: Callable[[str], None]) -> 
         slat_guidance_strength=3,
         slat_sampling_steps=12,
         multiimage_algo="stochastic",
-        api_name="/image_to_3d",
+        mesh_simplify=0.95,
+        texture_size=1024,
+        api_name="/generate_and_extract_glb",
     )
-    log("TRELLIS: GLB 추출 중...")
-    res = c.predict(mesh_simplify=0.95, texture_size=1024, api_name="/extract_glb")
     path = _find_mesh(res)
     if not path:
         raise CloudError(f"TRELLIS 응답에 3D 파일이 없음: {res!r}"[:300])
@@ -119,7 +119,7 @@ def _hunyuan(image_path: str, token: str | None, log: Callable[[str], None]) -> 
         check_box_rembg=True,
     )
     last: Exception | None = None
-    for api in ("/generation_all", "/shape_generation"):
+    for api in ("/shape_generation", "/generation_all"):  # generation_all(텍스처)은 현재 서버에서 고장
         for extra in ({"num_chunks": 8000, "randomize_seed": True}, {}):
             try:
                 res = c.predict(**common, **extra, api_name=api)

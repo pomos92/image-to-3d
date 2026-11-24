@@ -2,7 +2,7 @@ name: Probe HF 3D spaces
 on:
   push:
     branches: [main]
-    paths: ["tools/**", ".github/workflows/probe-spaces.yml", "mobile/android/app/src/main/java/com/pomos92/imageto3d/HunyuanClient.java"]
+    paths: ["tools/**", "img23d/cloud.py", ".github/workflows/probe-spaces.yml", "mobile/android/app/src/main/java/com/pomos92/imageto3d/TrellisClient.java"]
   workflow_dispatch:
 permissions:
   contents: write
@@ -20,13 +20,14 @@ jobs:
           distribution: temurin
           java-version: "17"
       - run: pip install -r requirements.txt requests
-      - run: curl -s https://tencent-hunyuan3d-2.hf.space/config | python -c "import json,sys; c=json.load(sys.stdin); print('version', c.get('version'), 'api_prefix', c.get('api_prefix'))"
-      - run: python tools/probe_rest.py tests/sample.png
+      - name: PC cloud engine (TRELLIS)
         continue-on-error: true
+        run: python -c "from img23d import cloud; print(cloud.generate('tests/sample.png', 'TRELLIS'))"
       - name: Java client (same code as the Android app)
         run: |
           mkdir -p probe-out
-          java mobile/android/app/src/main/java/com/pomos92/imageto3d/HunyuanClient.java tests/sample.png probe-out/hunyuan.glb
+          curl -sL -o json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+          java -cp json.jar mobile/android/app/src/main/java/com/pomos92/imageto3d/TrellisClient.java tests/sample.png probe-out/trellis.glb
       - name: Publish probe output
         if: always()
         run: |
