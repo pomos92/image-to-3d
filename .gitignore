@@ -1,0 +1,6 @@
+.venv/
+outputs/
+smoke/
+__pycache__/
+build/
+dist/
