@@ -66,12 +66,30 @@
     <label>STL 크기 (가장 긴 변, mm) <input id="sizemm" type="number" value="100" min="5" max="1000" style="width:90px"></label>
   </details>
 
+  <div id="rigbox" hidden>
+    <h2 style="font-size:15px;margin:18px 0 0">관절 <small style="color:var(--muted)">(서 있는 캐릭터용)</small></h2>
+    <div class="row"><button id="rig">뼈대(관절) 넣기</button></div>
+    <div id="rigctl" hidden>
+      <label>관절 <select id="joint"></select></label>
+      <label>앞뒤로 <input id="rx" type="range" min="-120" max="120" value="0"></label>
+      <label>비틀기 <input id="ry" type="range" min="-120" max="120" value="0"></label>
+      <label>옆으로 <input id="rz" type="range" min="-120" max="120" value="0"></label>
+      <div class="row">
+        <button data-pose="reset">처음 자세</button>
+        <button data-pose="armsdown">팔 내리기</button>
+        <button data-pose="wave">손 흔들기</button>
+        <button data-pose="walk">걷기</button>
+      </div>
+      <p style="margin:8px 0 0;font-size:13px;color:var(--muted)">GLB로 저장하면 뼈대가 함께 들어가서 블렌더·게임엔진에서 바로 움직일 수 있어요. STL·OBJ는 지금 자세 그대로 저장돼요.</p>
+    </div>
+  </div>
+
   <div id="save" hidden>
     <h2>파일로 저장 <small>(다운로드/ImageTo3D 폴더)</small></h2>
     <div class="row">
-      <button data-fmt="glb">GLB<br><small>색상 포함</small></button>
-      <button data-fmt="stl">STL<br><small>3D 프린팅</small></button>
-      <button data-fmt="obj">OBJ<br><small>편집용</small></button>
+      <button data-fmt="glb">GLB<br><small>색상·뼈대 포함</small></button>
+      <button data-fmt="stl">STL<br><small>3D 프린팅·색 없음</small></button>
+      <button data-fmt="obj">OBJ<br><small>편집용·색상 포함</small></button>
     </div>
   </div>
 </main>

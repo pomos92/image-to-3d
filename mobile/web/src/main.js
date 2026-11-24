@@ -2,9 +2,9 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
-import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildMesh } from "./engine.js";
+import { autoRig, makeJointMarkers, JOINT_LABELS } from "./rig.js";
 
 const $ = (id) => document.getElementById(id);
 const status = (t) => { $("status").textContent = t; };
@@ -31,10 +31,32 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (current) fitView();
+}
+
+// 모델 전체가 화면에 들어오도록 카메라 거리 맞추기 (세로로 긴 휴대폰 화면 고려)
+function fitView() {
+  const box = new THREE.Box3().setFromObject(current);
+  if (box.isEmpty()) return;
+  const size = new THREE.Vector3(), c = new THREE.Vector3();
+  box.getSize(size); box.getCenter(c);
+  const t = Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const dist = Math.max(size.y / 2 / t, Math.max(size.x, size.z) / 2 / (t * camera.aspect)) * 1.12 + size.z / 2;
+  controls.target.copy(c);
+  camera.position.set(c.x, c.y + size.y * 0.05, c.z + dist);
+  camera.near = dist / 100; camera.far = dist * 20;
+  camera.updateProjectionMatrix();
+  controls.update();
 }
 window.addEventListener("resize", resize);
 resize();
-(function loop() { requestAnimationFrame(loop); controls.update(); renderer.render(scene, camera); })();
+let rig = null, markers = null, selectedJoint = null;
+(function loop() {
+  requestAnimationFrame(loop);
+  controls.update();
+  if (markers) markers.userData.update(selectedJoint);
+  renderer.render(scene, camera);
+})();
 
 // ---------- 이미지 불러오기 ----------
 let img = null;
@@ -72,9 +94,113 @@ function showModel(obj) {
   }
   current = obj;
   scene.add(current);
-  controls.reset();
+  fitView();
   $("save").hidden = false;
+  clearRig();
+  $("rigbox").hidden = false;
 }
+
+// ---------- 관절(뼈대) ----------
+function clearRig() {
+  if (markers) { scene.remove(markers); markers = null; }
+  rig = null; selectedJoint = null;
+  $("rigctl").hidden = true;
+  $("rig").hidden = false;
+}
+
+function selectJoint(name) {
+  selectedJoint = name;
+  $("joint").value = name;
+  const b = rig.bones[name];
+  const e = new THREE.Euler().setFromQuaternion(b.quaternion.clone().multiply(rig.root.userData.restPose[name].clone().invert()));
+  $("rx").value = THREE.MathUtils.radToDeg(e.x).toFixed(0);
+  $("ry").value = THREE.MathUtils.radToDeg(e.y).toFixed(0);
+  $("rz").value = THREE.MathUtils.radToDeg(e.z).toFixed(0);
+}
+
+function applySliders() {
+  if (!rig || !selectedJoint) return;
+  const d = THREE.MathUtils.degToRad;
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(d(+$("rx").value), d(+$("ry").value), d(+$("rz").value)));
+  rig.bones[selectedJoint].quaternion.copy(q.multiply(rig.root.userData.restPose[selectedJoint]));
+}
+
+// 포즈: [x, y, z] 각도(처음 자세 기준) 또는 어깨는 { lift: 수평에서 위로 몇 도, swing: 앞뒤 } 로 지정
+function setPose(p) {
+  for (const n of rig.order) rig.bones[n].quaternion.copy(rig.root.userData.restPose[n]);
+  const d = THREE.MathUtils.degToRad;
+  for (const [n, v] of Object.entries(p)) {
+    let q;
+    if (Array.isArray(v)) {
+      const [x, y, z] = v;
+      // 오른쪽(R) 관절은 거울 대칭이 되도록 y·z 부호를 뒤집는다
+      const m = n.endsWith("R") ? -1 : 1;
+      q = new THREE.Quaternion().setFromEuler(new THREE.Euler(d(x), d(y) * m, d(z) * m));
+    } else {
+      const side = n.slice(-1), s = side === "L" ? 1 : -1;
+      const z = s * (d(v.lift) - rig.armLift[side]);
+      q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), d(v.swing || 0))
+        .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), z));
+    }
+    rig.bones[n].quaternion.copy(q.multiply(rig.root.userData.restPose[n]));
+  }
+  if (selectedJoint) selectJoint(selectedJoint);
+}
+
+const POSES = {
+  reset: {},
+  // 팔꿈치 z: +면 팔이 위쪽으로 굽음 (좌우 대칭 처리됨)
+  armsdown: { shoulderL: { lift: -72 }, shoulderR: { lift: -72 } },
+  wave: { shoulderR: { lift: 55 }, elbowR: [0, 0, 55], shoulderL: { lift: -72 } },
+  walk: {
+    hipL: [-28, 0, 0], kneeL: [30, 0, 0], hipR: [22, 0, 0], kneeR: [10, 0, 0],
+    shoulderL: { lift: -72, swing: 25 }, shoulderR: { lift: -72, swing: -25 },
+  },
+};
+
+$("rig").addEventListener("click", () => {
+  if (!current) return;
+  try {
+    const r = autoRig(current);
+    scene.remove(current);
+    current = r.root;
+    scene.add(current);
+    rig = r;
+    const box = new THREE.Box3().setFromObject(current), size = new THREE.Vector3();
+    box.getSize(size);
+    markers = makeJointMarkers(r.bones, Math.max(size.x, size.y, size.z));
+    scene.add(markers);
+    $("joint").innerHTML = r.order.map((n) => `<option value="${n}">${JOINT_LABELS[n]}</option>`).join("");
+    selectJoint("shoulderR");
+    $("rig").hidden = true;
+    $("rigctl").hidden = false;
+    status("뼈대를 넣었어요. 주황 점(관절)을 누르거나 목록에서 골라 슬라이더로 움직여 보세요.");
+  } catch (e) {
+    status("뼈대 넣기 실패: " + e.message);
+  }
+});
+$("joint").addEventListener("change", () => selectJoint($("joint").value));
+["rx", "ry", "rz"].forEach((id) => $(id).addEventListener("input", applySliders));
+document.querySelectorAll("[data-pose]").forEach((b) => b.addEventListener("click", () => rig && setPose(POSES[b.dataset.pose])));
+
+// 화면에서 관절 점 누르기 (드래그가 아닌 짧은 탭만)
+let downAt = null;
+renderer.domElement.addEventListener("pointerdown", (e) => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener("pointerup", (e) => {
+  if (!markers || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  const v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(v, camera);
+  // 점이 작아서 화면상 가장 가까운 관절을 고른다
+  let best = null, bd = Infinity;
+  for (const m of markers.children) {
+    const p = m.position.clone().project(camera);
+    const dd = Math.hypot(p.x - v.x, p.y - v.y);
+    if (dd < bd) { bd = dd; best = m.userData.joint; }
+  }
+  if (best && bd < 0.12) { selectJoint(best); status(JOINT_LABELS[best] + " 선택됨"); }
+});
 
 function setBusy(b) {
   $("make").disabled = b || !img;
@@ -202,21 +328,95 @@ function saveFile(name, data, mime) {
   status(`저장했어요: ${name}`);
 }
 
-function mergedPositions(root) {
-  // 모든 메쉬를 월드 좌표로 합친 위치 전용 지오메트리
+// 현재 자세를 그대로 굳힌 일반 메쉬들 (STL/OBJ 용)
+function bakedMeshes(root) {
   root.updateMatrixWorld(true);
-  const parts = [];
-  let n = 0;
+  const out = [];
+  const v = new THREE.Vector3();
   root.traverse((o) => {
     if (!o.isMesh) return;
-    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
-    const pos = g.attributes.position.clone();
-    pos.applyMatrix4(o.matrixWorld);
-    parts.push(pos); n += pos.count;
+    const g = o.geometry.clone();
+    const pos = g.attributes.position;
+    if (o.isSkinnedMesh) {
+      o.skeleton.update();
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i);
+        o.applyBoneTransform(i, v);
+        pos.setXYZ(i, v.x, v.y, v.z);
+      }
+      g.deleteAttribute("skinIndex"); g.deleteAttribute("skinWeight");
+      g.deleteAttribute("normal");
+      g.applyMatrix4(o.matrixWorld);
+      g.computeVertexNormals();
+    } else {
+      g.applyMatrix4(o.matrixWorld);
+    }
+    out.push({ geometry: g, material: Array.isArray(o.material) ? o.material[0] : o.material });
   });
+  return out;
+}
+
+// 정점 색 구하기: 정점 색 → 텍스처(uv) → 재질 색 순서. sRGB 0~1 로 돌려줌
+function vertexColorsOf(geometry, material) {
+  const n = geometry.attributes.position.count;
+  const out = new Float32Array(n * 3);
+  const c = new THREE.Color();
+  const col = geometry.getAttribute("color");
+  const uv = geometry.getAttribute("uv");
+  const map = material && material.map && material.map.image;
+  if (col) {
+    for (let i = 0; i < n; i++) { c.fromBufferAttribute(col, i); c.convertLinearToSRGB(); out[3 * i] = c.r; out[3 * i + 1] = c.g; out[3 * i + 2] = c.b; }
+  } else if (uv && map) {
+    const cv = document.createElement("canvas");
+    cv.width = map.width; cv.height = map.height;
+    const ctx = cv.getContext("2d");
+    ctx.drawImage(map, 0, 0);
+    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const flipY = material.map.flipY;
+    for (let i = 0; i < n; i++) {
+      let u = uv.getX(i) % 1, t = uv.getY(i) % 1;
+      if (u < 0) u += 1; if (t < 0) t += 1;
+      const x = Math.min(cv.width - 1, Math.floor(u * cv.width));
+      const y = Math.min(cv.height - 1, Math.floor((flipY ? 1 - t : t) * cv.height));
+      const k = (y * cv.width + x) * 4;
+      out[3 * i] = px[k] / 255; out[3 * i + 1] = px[k + 1] / 255; out[3 * i + 2] = px[k + 2] / 255;
+    }
+  } else {
+    c.copy(material && material.color ? material.color : new THREE.Color(1, 1, 1)).convertLinearToSRGB();
+    for (let i = 0; i < n; i++) { out[3 * i] = c.r; out[3 * i + 1] = c.g; out[3 * i + 2] = c.b; }
+  }
+  return out;
+}
+
+// 색 포함 OBJ ("v x y z r g b" — 블렌더·MeshLab 등에서 색이 보임)
+function exportColoredObj(root) {
+  const parts = [];
+  let base = 1;
+  for (const { geometry: g, material } of bakedMeshes(root)) {
+    const pos = g.attributes.position, cols = vertexColorsOf(g, material);
+    const lines = [];
+    for (let i = 0; i < pos.count; i++) {
+      lines.push(`v ${pos.getX(i).toFixed(5)} ${pos.getY(i).toFixed(5)} ${pos.getZ(i).toFixed(5)} ${cols[3 * i].toFixed(4)} ${cols[3 * i + 1].toFixed(4)} ${cols[3 * i + 2].toFixed(4)}`);
+    }
+    const idx = g.index;
+    const triCount = idx ? idx.count / 3 : pos.count / 3;
+    for (let t = 0; t < triCount; t++) {
+      const a = idx ? idx.getX(3 * t) : 3 * t, b = idx ? idx.getX(3 * t + 1) : 3 * t + 1, c = idx ? idx.getX(3 * t + 2) : 3 * t + 2;
+      lines.push(`f ${a + base} ${b + base} ${c + base}`);
+    }
+    base += pos.count;
+    parts.push(lines.join("\n"));
+  }
+  return "# ImageTo3D\n" + parts.join("\n") + "\n";
+}
+
+function mergedPositions(root) {
+  // 모든 메쉬를 (현재 자세 그대로) 월드 좌표로 합친 위치 전용 지오메트리
+  const parts = bakedMeshes(root).map(({ geometry }) => (geometry.index ? geometry.toNonIndexed() : geometry).attributes.position);
+  let n = 0; for (const p of parts) n += p.count;
   const arr = new Float32Array(n * 3);
   let off = 0;
-  for (const p of parts) { for (let i = 0; i < p.count; i++) { arr[off++] = p.getX(i); arr[off++] = p.getY(i); arr[off++] = p.getZ(i); } }
+  for (const p of parts) { arr.set(p.array.subarray(0, p.count * 3), off); off += p.count * 3; }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
   return g;
@@ -249,6 +449,6 @@ document.querySelectorAll("[data-fmt]").forEach((btn) => btn.addEventListener("c
     const dv = new STLExporter().parse(printableClone(mm), { binary: true });
     saveFile(name + ".stl", dv.buffer, "model/stl");
   } else if (fmt === "obj") {
-    saveFile(name + ".obj", new OBJExporter().parse(current), "text/plain");
+    saveFile(name + ".obj", exportColoredObj(current), "text/plain");
   }
 }));

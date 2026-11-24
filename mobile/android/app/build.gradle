@@ -10,8 +10,8 @@ android {
         applicationId "com.pomos92.imageto3d"
         minSdk 24
         targetSdk 35
-        versionCode 6
-        versionName "1.1.4"
+        versionCode 7
+        versionName "1.2.0"
     }
 
     // 개인 테스트 배포용 고정 서명 키 (빌드마다 키가 바뀌면 업데이트 설치가 막히므로 저장소에 고정).
