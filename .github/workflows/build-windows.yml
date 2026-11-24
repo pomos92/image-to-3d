@@ -3,7 +3,7 @@ name: Build Windows exe
 on:
   push:
     branches: [main]
-    paths-ignore: ["mobile/**", ".github/workflows/build-android.yml"]
+    paths-ignore: ["mobile/**", "tools/**", ".github/workflows/build-android.yml", ".github/workflows/probe-spaces.yml"]
     tags: ["v*"]
   release:
     types: [published]
