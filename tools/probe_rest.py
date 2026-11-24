@@ -1,38 +1,20 @@
-"""TRELLIS 큐 프로토콜(/queue/join) 확인 (안드로이드 앱이 쓸 방식, CI 디버그용)."""
-import sys, time, json, random, string, requests
-B = "https://trellis-community-trellis.hf.space"
+"""gradio_client 가 실제로 어떤 URL/본문으로 TRELLIS 를 호출하는지 기록 (CI 디버그용)."""
+import sys, json, logging, httpx
+from gradio_client import Client, handle_file
+logging.basicConfig(level=logging.INFO, format="LOG %(message)s")
+orig_post = httpx.post
+def post(url, *a, **k):
+    print("POST", url, "json=", json.dumps(k.get("json"))[:400] if k.get("json") is not None else None, "headers=", {h: v for h, v in (k.get("headers") or {}).items() if h.lower() != "authorization"}, flush=True)
+    return orig_post(url, *a, **k)
+httpx.post = post
+orig_req = httpx.Client.send
+def send(self, request, *a, **k):
+    print("SEND", request.method, request.url, request.content[:300] if request.method == "POST" and not request.headers.get("content-type", "").startswith("multipart") else "", flush=True)
+    return orig_req(self, request, *a, **k)
+httpx.Client.send = send
 img = sys.argv[1]
-cfg = requests.get(B + "/config").json()
-deps = cfg["dependencies"]
-idx = {d.get("api_name"): (d.get("id", i), d.get("queue")) for i, d in enumerate(deps)}
-print("protocol", cfg.get("protocol"))
-print("fn:", {k: v for k, v in idx.items() if k in ("start_session", "preprocess_image", "generate_and_extract_glb")})
-up = requests.post(B + "/upload", files={"files": open(img, "rb")}).json()
-fd = lambda p: {"path": p, "orig_name": "image.png", "meta": {"_type": "gradio.FileData"}}
-sh = "".join(random.choices(string.ascii_lowercase + string.digits, k=11))
-
-def call(api, data):
-    fid, q = idx[api]
-    if q is False:
-        r = requests.post(B + "/run/predict", json={"data": data, "event_data": None, "fn_index": fid, "trigger_id": None, "session_hash": sh})
-        print("run", api, r.status_code, r.text[:300])
-        return {"output": r.json()}
-    r = requests.post(B + "/queue/join", json={"data": data, "event_data": None, "fn_index": fid, "trigger_id": None, "session_hash": sh})
-    print("join", api, r.status_code, r.text[:200])
-    with requests.get(B + "/queue/data", params={"session_hash": sh}, stream=True) as s:
-        for line in s.iter_lines(decode_unicode=True):
-            if not line.startswith("data:"): continue
-            m = json.loads(line[5:])
-            if m.get("msg") not in ("heartbeat",): print("   ", str(m)[:300])
-            if m.get("msg") == "process_completed":
-                return m
-t = time.time()
-call("start_session", [])
-m = call("preprocess_image", [fd(up[0])])
-pre = m["output"]["data"][0]
-m = call("generate_and_extract_glb", [pre, [], 0, 7.5, 12, 3, 12, "stochastic", 0.95, 1024])
-print("elapsed", time.time() - t)
-for x in m["output"]["data"]:
-    if isinstance(x, dict) and str(x.get("path", "")).endswith(".glb"):
-        for url in (x.get("url"), f"{B}/file={x['path']}"):
-            r = requests.get(url); print("download", str(url)[:140], r.status_code, len(r.content))
+c = Client("trellis-community/TRELLIS", verbose=False)
+print("src", c.src, "prefixed", c.src_prefixed, "sse_data_url", c.sse_data_url, "protocol", c.protocol)
+c.predict(api_name="/start_session")
+pre = c.predict(image=handle_file(img), api_name="/preprocess_image")
+print("pre", pre)
