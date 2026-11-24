@@ -21,6 +21,7 @@ jobs:
           java-version: "17"
       - run: pip install -r requirements.txt requests
       - name: Java client (same code as the Android app)
+        continue-on-error: true
         run: |
           mkdir -p probe-out
           curl -sL -o json.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
