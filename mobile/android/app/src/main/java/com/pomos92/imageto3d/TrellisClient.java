@@ -191,8 +191,15 @@ public class TrellisClient {
         p.update("배경 지우는 중...");
         JSONArray pre = run("preprocess_image", new JSONArray().put(fileData(path, filename)), p, "배경 지우는 중...");
         Object preImg = pre.get(0);
-        // gradio_client 와 똑같이 path/orig_name/meta 만 보낸다 (url 을 같이 보내면 서버가 실패함)
-        String prePath = preImg instanceof JSONObject ? ((JSONObject) preImg).optString("path") : String.valueOf(preImg);
+        // 배경 지운 결과를 내려받아 다시 올린다 (gradio_client 와 같은 방식.
+        // 서버의 결과 파일 경로를 그대로 넘기면 서버가 입력으로 받아주지 않는다)
+        JSONObject preObj = preImg instanceof JSONObject ? (JSONObject) preImg : null;
+        String preUrl = preObj != null && preObj.has("url") && !preObj.isNull("url") ? preObj.optString("url")
+                : api + "/file=" + (preObj != null ? preObj.optString("path") : String.valueOf(preImg));
+        HttpURLConnection pd = open(preUrl, "GET");
+        if (pd.getResponseCode() >= 400) throw new Exception("배경 지운 사진을 받지 못했어요: HTTP " + pd.getResponseCode());
+        byte[] preBytes = readBytes(pd.getInputStream());
+        String prePath = upload(preBytes, "image.png");
         JSONObject preFile = fileData(prePath, "image.png");
 
         JSONArray args = new JSONArray()
