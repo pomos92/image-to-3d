@@ -13,13 +13,17 @@ for sp in SPACES:
         for name, ep in (info.get("named_endpoints") or {}).items():
             params = [(p.get("parameter_name"), p.get("python_type", {}).get("type"), p.get("parameter_default")) for p in ep.get("parameters", [])]
             rets = [r.get("python_type", {}).get("type") for r in ep.get("returns", [])]
-            print(f"  {name}: params={params} returns={rets}")
+            if name in ("/generation_all", "/generate_and_extract_glb", "/image_to_3d"):
+                for pp in ep.get("parameters", []):
+                    print("     -", pp.get("parameter_name"), "default=", pp.get("parameter_default"), "type=", str(pp.get("python_type", {}).get("type"))[:60])
+            else:
+                print(f"  {name}: params={[x[0] for x in params]}")
     except Exception as e:
         print("  view_api failed:", repr(e)[:300])
 print("=" * 30, "generation test via img23d.cloud", flush=True)
 sys.path.insert(0, ".")
 from img23d import cloud
-for m in ["TRELLIS", "Hunyuan3D-2", "TripoSR"]:
+for m in []:
     t = time.time()
     try:
         p, used = cloud.generate(img, m, token, print)
