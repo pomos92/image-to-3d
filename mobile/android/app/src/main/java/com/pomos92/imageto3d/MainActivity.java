@@ -87,8 +87,28 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
+    private void js(String fn, String arg) {
+        String q = org.json.JSONObject.quote(arg);
+        runOnUiThread(() -> web.evaluateJavascript("window." + fn + " && window." + fn + "(" + q + ")", null));
+    }
+
     /** 자바스크립트에서 호출: 파일을 '다운로드' 폴더에 저장 */
     class Bridge {
+        /** AI(TRELLIS)로 3D 만들기. 진행 상황은 onAiProgress, 결과(GLB base64)는 onAiDone, 실패는 onAiError 로 알려줌 */
+        @JavascriptInterface
+        public void aiGenerate(String imageBase64, String filename, String token) {
+            new Thread(() -> {
+                try {
+                    byte[] img = Base64.decode(imageBase64, Base64.DEFAULT);
+                    byte[] glb = new TrellisClient(token).generate(img, filename, msg -> js("onAiProgress", msg));
+                    js("onAiDone", Base64.encodeToString(glb, Base64.NO_WRAP));
+                } catch (Throwable e) {
+                    String m = e.getMessage() == null ? e.toString() : e.getMessage();
+                    js("onAiError", m);
+                }
+            }).start();
+        }
+
         @JavascriptInterface
         public boolean saveFile(String name, String mime, String base64) {
             try {

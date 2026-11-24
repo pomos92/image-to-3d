@@ -3,6 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { OBJExporter } from "three/examples/jsm/exporters/OBJExporter.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { buildMesh } from "./engine.js";
 
 const $ = (id) => document.getElementById(id);
@@ -46,8 +47,8 @@ $("file").addEventListener("change", async (e) => {
     $("preview").src = url;
     $("preview").hidden = false;
     $("pick").textContent = "다른 사진 고르기";
-    $("make").disabled = false;
-    status("'3D 만들기'를 눌러 주세요.");
+    setBusy(false);
+    status("'AI로 만들기'(고품질, 인터넷 필요) 또는 '빠른 3D'(휴대폰 안에서)를 눌러 주세요.");
   };
   img.src = url;
 });
@@ -64,10 +65,84 @@ function imageData(maxSide) {
   return { data: ctx.getImageData(0, 0, w, h).data, w, h };
 }
 
+function showModel(obj) {
+  if (current) {
+    scene.remove(current);
+    current.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+  }
+  current = obj;
+  scene.add(current);
+  controls.reset();
+  $("save").hidden = false;
+}
+
+function setBusy(b) {
+  $("make").disabled = b || !img;
+  $("ai").disabled = b || !img;
+  $("pick").disabled = b;
+}
+
+// ---------- AI로 만들기 (클라우드, 앱 전용) ----------
+const hasBridge = !!(window.AndroidBridge && window.AndroidBridge.aiGenerate);
+if (!hasBridge) $("ai").title = "안드로이드 앱에서만 쓸 수 있어요";
+try { $("hftoken").value = localStorage.getItem("hfToken") || ""; } catch (e) {}
+$("hftoken").addEventListener("change", () => { try { localStorage.setItem("hfToken", $("hftoken").value.trim()); } catch (e) {} });
+
+function aiImage() {
+  // 긴 변 1024px. 투명 배경이 있으면 PNG, 아니면 JPEG
+  const s = Math.min(1, 1024 / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+  const ctx = c.getContext("2d");
+  ctx.drawImage(img, 0, 0, c.width, c.height);
+  const d = ctx.getImageData(0, 0, c.width, c.height).data;
+  let alpha = false;
+  for (let i = 3; i < d.length; i += 4 * 97) if (d[i] < 250) { alpha = true; break; }
+  const url = alpha ? c.toDataURL("image/png") : c.toDataURL("image/jpeg", 0.92);
+  return { b64: url.split(",")[1], name: alpha ? "photo.png" : "photo.jpg" };
+}
+
+let aiStart = 0;
+window.onAiProgress = (m) => status(m + ` (${Math.round((performance.now() - aiStart) / 1000)}초)`);
+window.onAiError = (m) => { status("AI 실패: " + m); setBusy(false); };
+window.onAiDone = (b64) => {
+  try {
+    const bin = atob(b64), buf = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+    new GLTFLoader().parse(buf.buffer, "", (gltf) => {
+      const root = gltf.scene;
+      // 크기를 긴 변 1 로, 중심을 원점으로
+      const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
+      box.getSize(size); box.getCenter(center);
+      const k = 1 / Math.max(size.x, size.y, size.z, 1e-6);
+      const wrap = new THREE.Group();
+      root.position.sub(center);
+      wrap.add(root);
+      wrap.scale.setScalar(k);
+      wrap.name = "model";
+      showModel(wrap);
+      let tris = 0;
+      wrap.traverse((o) => { if (o.isMesh) tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+      status(`AI 완료! ${Math.round(tris).toLocaleString()}개 삼각형 · ${Math.round((performance.now() - aiStart) / 1000)}초. 손가락으로 돌려 보세요.`);
+      setBusy(false);
+    }, (e) => { status("3D 파일을 열지 못했어요: " + e); setBusy(false); });
+  } catch (e) { status("3D 파일을 열지 못했어요: " + e.message); setBusy(false); }
+};
+
+$("ai").addEventListener("click", () => {
+  if (!img) return;
+  if (!hasBridge) { status("AI 기능은 안드로이드 앱에서만 쓸 수 있어요."); return; }
+  setBusy(true);
+  aiStart = performance.now();
+  status("AI 준비 중...");
+  const { b64, name } = aiImage();
+  window.AndroidBridge.aiGenerate(b64, name, $("hftoken").value.trim());
+});
+
 // ---------- 3D 만들기 ----------
 $("make").addEventListener("click", () => {
   if (!img) return;
-  $("make").disabled = true;
+  setBusy(true);
   status("3D 만드는 중... (몇 초 걸려요)");
   setTimeout(() => {
     try {
@@ -88,17 +163,14 @@ $("make").addEventListener("click", () => {
       geo.setIndex(new THREE.BufferAttribute(m.indices, 1));
       geo.computeVertexNormals();
       const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0 });
-      if (current) { scene.remove(current); current.geometry.dispose(); }
-      current = new THREE.Mesh(geo, mat);
-      current.name = "model";
-      scene.add(current);
-      controls.reset();
-      $("save").hidden = false;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.name = "model";
+      showModel(mesh);
       status(`완료! ${(m.indices.length / 3).toLocaleString()}개 삼각형 · ${((performance.now() - t0) / 1000).toFixed(1)}초. 손가락으로 돌려 보세요.`);
     } catch (err) {
       status("실패: " + (err && err.message ? err.message : err));
     } finally {
-      $("make").disabled = false;
+      setBusy(false);
     }
   }, 50);
 });
@@ -130,9 +202,29 @@ function saveFile(name, data, mime) {
   status(`저장했어요: ${name}`);
 }
 
+function mergedPositions(root) {
+  // 모든 메쉬를 월드 좌표로 합친 위치 전용 지오메트리
+  root.updateMatrixWorld(true);
+  const parts = [];
+  let n = 0;
+  root.traverse((o) => {
+    if (!o.isMesh) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    const pos = g.attributes.position.clone();
+    pos.applyMatrix4(o.matrixWorld);
+    parts.push(pos); n += pos.count;
+  });
+  const arr = new Float32Array(n * 3);
+  let off = 0;
+  for (const p of parts) { for (let i = 0; i < p.count; i++) { arr[off++] = p.getX(i); arr[off++] = p.getY(i); arr[off++] = p.getZ(i); } }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
+  return g;
+}
+
 function printableClone(sizeMm) {
   // 3D 프린팅용: Z 위쪽, 가장 긴 변 = sizeMm, 바닥 z=0
-  const g = current.geometry.clone();
+  const g = mergedPositions(current);
   g.rotateX(Math.PI / 2);
   g.computeBoundingBox();
   const bb = g.boundingBox, size = new THREE.Vector3();

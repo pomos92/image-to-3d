@@ -119,8 +119,8 @@ public class TrellisClient {
                     JSONObject out = m.optJSONObject("output");
                     if (!m.optBoolean("success", true) || out == null || !out.has("data")) {
                         String err = out != null ? out.optString("error", "") : "";
-                        if (err.isEmpty() || "null".equals(err)) err = "알 수 없는 오류 (" + m.toString().substring(0, Math.min(400, m.toString().length())) + ")";
-                        if (err.contains("quota") || err.contains("GPU")) {
+                        if (err.isEmpty() || "null".equals(err)) err = "AI 서버가 작업을 거절했어요";
+                        if (err.contains("quota") || err.contains("GPU") || err.startsWith("AI 서버가 작업을 거절")) {
                             err += "\n→ 무료 사용량을 다 쓴 것 같아요. 설정에 Hugging Face 토큰을 넣거나 나중에 다시 해 보세요.";
                         }
                         throw new Exception("AI 서버 오류: " + err);
