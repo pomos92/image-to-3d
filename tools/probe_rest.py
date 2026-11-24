@@ -18,3 +18,6 @@ print("src", c.src, "prefixed", c.src_prefixed, "sse_data_url", c.sse_data_url, 
 c.predict(api_name="/start_session")
 pre = c.predict(image=handle_file(img), api_name="/preprocess_image")
 print("pre", pre)
+res = c.predict(image=handle_file(pre), multiimages=[], seed=5, ss_guidance_strength=7.5, ss_sampling_steps=12, slat_guidance_strength=3,
+                slat_sampling_steps=12, multiimage_algo="stochastic", mesh_simplify=0.95, texture_size=1024, api_name="/generate_and_extract_glb")
+print("gen", str(res)[:300])

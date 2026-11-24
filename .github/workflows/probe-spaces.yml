@@ -20,6 +20,9 @@ jobs:
           distribution: temurin
           java-version: "17"
       - run: pip install -r requirements.txt requests
+      - name: Python request log
+        continue-on-error: true
+        run: python tools/probe_rest.py tests/sample.png
       - name: Java client (same code as the Android app)
         continue-on-error: true
         run: |
