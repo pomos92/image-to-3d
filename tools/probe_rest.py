@@ -4,14 +4,19 @@ B = "https://trellis-community-trellis.hf.space"
 img = sys.argv[1]
 cfg = requests.get(B + "/config").json()
 deps = cfg["dependencies"]
-idx = {d.get("api_name"): (d.get("id", i), i) for i, d in enumerate(deps)}
+idx = {d.get("api_name"): (d.get("id", i), d.get("queue")) for i, d in enumerate(deps)}
+print("protocol", cfg.get("protocol"))
 print("fn:", {k: v for k, v in idx.items() if k in ("start_session", "preprocess_image", "generate_and_extract_glb")})
 up = requests.post(B + "/upload", files={"files": open(img, "rb")}).json()
 fd = lambda p: {"path": p, "orig_name": "image.png", "meta": {"_type": "gradio.FileData"}}
 sh = "".join(random.choices(string.ascii_lowercase + string.digits, k=11))
 
 def call(api, data):
-    fid, pos = idx[api]
+    fid, q = idx[api]
+    if q is False:
+        r = requests.post(B + "/run/predict", json={"data": data, "event_data": None, "fn_index": fid, "trigger_id": None, "session_hash": sh})
+        print("run", api, r.status_code, r.text[:300])
+        return {"output": r.json()}
     r = requests.post(B + "/queue/join", json={"data": data, "event_data": None, "fn_index": fid, "trigger_id": None, "session_hash": sh})
     print("join", api, r.status_code, r.text[:200])
     with requests.get(B + "/queue/data", params={"session_hash": sh}, stream=True) as s:
