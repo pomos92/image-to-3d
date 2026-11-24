@@ -2,7 +2,7 @@ name: Probe HF 3D spaces
 on:
   push:
     branches: [main]
-    paths: ["tools/probe_spaces.py", ".github/workflows/probe-spaces.yml", "mobile/android/app/src/main/java/com/pomos92/imageto3d/HunyuanClient.java"]
+    paths: ["tools/**", ".github/workflows/probe-spaces.yml", "mobile/android/app/src/main/java/com/pomos92/imageto3d/HunyuanClient.java"]
   workflow_dispatch:
 permissions:
   contents: write
@@ -21,7 +21,8 @@ jobs:
           java-version: "17"
       - run: pip install -r requirements.txt
       - run: curl -s https://tencent-hunyuan3d-2.hf.space/config | python -c "import json,sys; c=json.load(sys.stdin); print('version', c.get('version'), 'api_prefix', c.get('api_prefix'))"
-      - run: python tools/probe_spaces.py tests/sample.png
+      - run: python tools/probe_rest.py tests/sample.png
+        continue-on-error: true
       - name: Java client (same code as the Android app)
         run: |
           mkdir -p probe-out
