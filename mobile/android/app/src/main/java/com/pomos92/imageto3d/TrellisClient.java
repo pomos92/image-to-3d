@@ -25,6 +25,7 @@ import java.util.UUID;
 public class TrellisClient {
     public interface Progress { void update(String msg); }
 
+    static boolean DEBUG = false;
     static final String BASE = "https://trellis-community-trellis.hf.space";
     private final String token;
     private String api;
@@ -93,6 +94,7 @@ public class TrellisClient {
         body.put("data", data);
         body.put("fn_index", fnIndex(apiName));
         body.put("session_hash", session);
+        if (DEBUG) System.out.println("[" + apiName + "] join " + body.toString().substring(0, Math.min(500, body.toString().length())));
         JSONObject join = new JSONObject(post(api + "/queue/join", body.toString()));
         String eventId = join.optString("event_id");
 
@@ -104,6 +106,7 @@ public class TrellisClient {
             while ((line = br.readLine()) != null) {
                 if (!line.startsWith("data:")) continue;
                 JSONObject m = new JSONObject(line.substring(5).trim());
+                if (DEBUG) System.out.println("[" + apiName + "] " + line.substring(0, Math.min(500, line.length())));
                 String msg = m.optString("msg");
                 if (!eventId.isEmpty() && m.has("event_id") && !eventId.equals(m.optString("event_id"))) continue;
                 if ("estimation".equals(msg)) {
@@ -207,6 +210,7 @@ public class TrellisClient {
 
     /** PC 테스트용 */
     public static void main(String[] args) throws Exception {
+        DEBUG = true;
         byte[] img = Files.readAllBytes(Paths.get(args[0]));
         long t = System.currentTimeMillis();
         byte[] glb = new TrellisClient(System.getenv("HF_TOKEN")).generate(img, Paths.get(args[0]).getFileName().toString(), System.out::println);
