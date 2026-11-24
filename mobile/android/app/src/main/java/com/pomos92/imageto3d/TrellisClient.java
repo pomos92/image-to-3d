@@ -236,7 +236,9 @@ public class TrellisClient {
         JSONObject preFile = fileData(prePath, "image.png");
 
         JSONArray args = new JSONArray()
-                .put(preFile).put(new JSONArray()).put((double) new Random().nextInt(100000))
+                .put(preFile).put(new JSONArray())
+                .put(JSONObject.NULL) // 화면에 안 보이는 상태(State) 값 자리. gradio_client 도 null 을 보냄
+                .put((double) new Random().nextInt(100000))
                 .put(7.5).put(12).put(3).put(12).put("stochastic")
                 .put(0.95).put(1024);
         JSONArray out = run("generate_and_extract_glb", args, p, "AI가 3D를 만드는 중... (보통 20초~1분)");
