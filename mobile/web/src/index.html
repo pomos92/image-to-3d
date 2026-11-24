@@ -66,6 +66,25 @@
     <label>STL 크기 (가장 긴 변, mm) <input id="sizemm" type="number" value="100" min="5" max="1000" style="width:90px"></label>
   </details>
 
+  <div id="colorbox" hidden>
+    <h2 style="font-size:15px;margin:18px 0 0">색 입히기</h2>
+    <div class="row">
+      <button id="photocolor">사진 색 입히기<br><small>원본 사진 색을 다시 입혀요</small></button>
+      <button id="painttoggle">직접 칠하기<br><small>손가락으로 칠해요</small></button>
+    </div>
+    <label>사진 색 세기 <input id="pstrength" type="range" min="10" max="100" step="5" value="100"><span id="pstrengthv">100%</span></label>
+    <label>뒷면에도 입히기 <input id="pback" type="checkbox"></label>
+    <div id="paintctl" hidden>
+      <label>붓 색 <input id="pcolor" type="color" value="#e53935" style="width:64px;height:36px;padding:0;border:none;background:none"></label>
+      <label>붓 크기 <input id="psize" type="range" min="1" max="20" value="5"></label>
+      <div class="row">
+        <button id="ppick">스포이드<br><small>모델에서 색 고르기</small></button>
+      </div>
+    </div>
+    <div class="row"><button id="pundo">색 되돌리기</button></div>
+    <p style="margin:8px 0 0;font-size:13px;color:var(--muted)">칠하는 중에는 한 손가락이 붓이 돼요. 돌려 보려면 '칠하기 끝'을 누르세요. 칠한 색은 GLB·OBJ에 그대로 저장돼요.</p>
+  </div>
+
   <div id="rigbox" hidden>
     <h2 style="font-size:15px;margin:18px 0 0">관절 <small style="color:var(--muted)">(서 있는 캐릭터용)</small></h2>
     <div class="row"><button id="rig">뼈대(관절) 넣기</button></div>

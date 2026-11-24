@@ -3,7 +3,8 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { buildMesh } from "./engine.js";
+import { fixMaterials, projectPhoto, beginStroke, paintAt, pickColor, undo as undoColor, clearUndo } from "./paint.js";
+import { buildMesh, extractMask } from "./engine.js";
 import { autoRig, makeJointMarkers, JOINT_LABELS } from "./rig.js";
 
 const $ = (id) => document.getElementById(id);
@@ -98,6 +99,10 @@ function showModel(obj) {
   $("save").hidden = false;
   clearRig();
   $("rigbox").hidden = false;
+  $("colorbox").hidden = false;
+  modelPhoto = img;
+  clearUndo();
+  setPaint(false);
 }
 
 // ---------- 관절(뼈대) ----------
@@ -166,6 +171,7 @@ $("rig").addEventListener("click", () => {
     current = r.root;
     scene.add(current);
     rig = r;
+    clearUndo();
     const box = new THREE.Box3().setFromObject(current), size = new THREE.Vector3();
     box.getSize(size);
     markers = makeJointMarkers(r.bones, Math.max(size.x, size.y, size.z));
@@ -187,6 +193,7 @@ document.querySelectorAll("[data-pose]").forEach((b) => b.addEventListener("clic
 let downAt = null;
 renderer.domElement.addEventListener("pointerdown", (e) => { downAt = [e.clientX, e.clientY]; });
 renderer.domElement.addEventListener("pointerup", (e) => {
+  if (painting) return;
   if (!markers || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
   const r = renderer.domElement.getBoundingClientRect();
   const v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -237,6 +244,7 @@ window.onAiDone = (b64) => {
     for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
     new GLTFLoader().parse(buf.buffer, "", (gltf) => {
       const root = gltf.scene;
+      fixMaterials(root);
       // 크기를 긴 변 1 로, 중심을 원점으로
       const box = new THREE.Box3().setFromObject(root), size = new THREE.Vector3(), center = new THREE.Vector3();
       box.getSize(size); box.getCenter(center);
@@ -452,3 +460,82 @@ document.querySelectorAll("[data-fmt]").forEach((btn) => btn.addEventListener("c
     saveFile(name + ".obj", exportColoredObj(current), "text/plain");
   }
 }));
+
+// ---------- 색 입히기 ----------
+let modelPhoto = null, painting = false, picking = false, stroking = false;
+const raycaster = new THREE.Raycaster();
+
+function setPaint(on) {
+  painting = on;
+  picking = false;
+  controls.enabled = !on;
+  $("paintctl").hidden = !on;
+  $("painttoggle").innerHTML = on ? "칠하기 끝<br><small>다시 돌려 볼 수 있어요</small>" : "직접 칠하기<br><small>손가락으로 칠해요</small>";
+  $("painttoggle").classList.toggle("primary", on);
+}
+
+function hitAt(e) {
+  if (!current) return null;
+  const r = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObject(current, true).filter((h) => h.object.isMesh && h.face);
+  return hits[0] || null;
+}
+
+$("pstrength").addEventListener("input", () => { $("pstrengthv").textContent = $("pstrength").value + "%"; });
+$("painttoggle").addEventListener("click", () => {
+  if (!current) return;
+  setPaint(!painting);
+  if (painting) status("모델 위를 손가락으로 문질러 칠하세요.");
+});
+$("ppick").addEventListener("click", () => { picking = true; status("모델에서 색을 가져올 곳을 누르세요."); });
+$("pundo").addEventListener("click", () => status(undoColor() ? "되돌렸어요." : "되돌릴 게 없어요."));
+
+$("photocolor").addEventListener("click", () => {
+  if (!current) return;
+  const photo = modelPhoto || img;
+  if (!photo) { status("먼저 사진을 골라 주세요."); return; }
+  status("사진 색 입히는 중...");
+  setTimeout(() => {
+    try {
+      const t0 = performance.now();
+      const s = Math.min(1, 1024 / Math.max(photo.naturalWidth, photo.naturalHeight));
+      const w = Math.max(1, Math.round(photo.naturalWidth * s)), h = Math.max(1, Math.round(photo.naturalHeight * s));
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(photo, 0, 0, w, h);
+      const data = ctx.getImageData(0, 0, w, h).data;
+      const mask = extractMask(data, w, h, true);
+      projectPhoto(current, { data, w, h, mask }, { strength: Number($("pstrength").value) / 100, back: $("pback").checked });
+      status(`사진 색을 입혔어요 (${((performance.now() - t0) / 1000).toFixed(1)}초). 마음에 안 들면 '색 되돌리기'.`);
+    } catch (err) {
+      status("색 입히기 실패: " + (err && err.message ? err.message : err));
+    }
+  }, 30);
+});
+
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (!painting) return;
+  const hit = hitAt(e);
+  if (!hit) return;
+  if (picking) {
+    const c = pickColor(hit);
+    if (c) { $("pcolor").value = "#" + c.getHexString(THREE.NoColorSpace); status("이 색으로 칠할게요."); }
+    picking = false;
+    return;
+  }
+  stroking = true;
+  renderer.domElement.setPointerCapture(e.pointerId);
+  beginStroke(current);
+  paintAt(hit, new THREE.Color().setStyle($("pcolor").value, THREE.NoColorSpace), Number($("psize").value) / 200);
+});
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (!painting || !stroking) return;
+  const hit = hitAt(e);
+  if (hit) paintAt(hit, new THREE.Color().setStyle($("pcolor").value, THREE.NoColorSpace), Number($("psize").value) / 200);
+});
+const endStroke = () => { stroking = false; };
+renderer.domElement.addEventListener("pointerup", endStroke);
+renderer.domElement.addEventListener("pointercancel", endStroke);
