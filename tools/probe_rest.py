@@ -1,41 +1,39 @@
-"""텍스처 포함 3D 를 주는 공개 Space 찾기 (CI 디버그용)."""
-import sys, time, traceback
-from gradio_client import Client, handle_file
+"""TRELLIS REST 프로토콜 확인 (안드로이드 앱이 쓸 방식, CI 디버그용)."""
+import sys, time, json, random, string, requests
+B = "https://trellis-community-trellis.hf.space"
 img = sys.argv[1]
+cfg = requests.get(B + "/config").json()
+print("version", cfg.get("version"), "api_prefix", cfg.get("api_prefix"))
+P = (cfg.get("api_prefix") or "").rstrip("/")
+A = B + P
+up = requests.post(A + "/upload", files={"files": open(img, "rb")}).json()
+print("upload:", up)
+fd = lambda p: {"path": p, "orig_name": "image.png", "meta": {"_type": "gradio.FileData"}}
+sh = "".join(random.choices(string.ascii_lowercase + string.digits, k=11))
 
-def run(name, fn):
-    t = time.time()
-    try:
-        r = fn()
-        print(f"RESULT {name} OK {time.time()-t:.0f}s :: {str(r)[:700]}", flush=True)
-    except Exception as e:
-        print(f"RESULT {name} FAIL {time.time()-t:.0f}s :: {repr(e)[:500]}", flush=True)
-
-def trellis():
-    c = Client("trellis-community/TRELLIS", verbose=False)
-    try: c.predict(api_name="/start_session")
-    except Exception as e: print("start_session:", e)
-    pre = c.predict(image=handle_file(img), api_name="/preprocess_image")
-    print("pre:", str(pre)[:200])
-    return c.predict(image=handle_file(pre if isinstance(pre, str) else pre["path"]), multiimages=[], seed=0, ss_guidance_strength=7.5, ss_sampling_steps=12,
-                     slat_guidance_strength=3, slat_sampling_steps=12, multiimage_algo="stochastic", mesh_simplify=0.95, texture_size=1024,
-                     api_name="/generate_and_extract_glb")
-
-def hy21():
-    c = Client("tencent/Hunyuan3D-2.1", verbose=False)
-    return c.predict(image=handle_file(img), steps=30, guidance_scale=5, seed=1234, octree_resolution=256, check_box_rembg=True,
-                     num_chunks=8000, randomize_seed=True, api_name="/generation_all")
-
-def trellis2():
-    c = Client("microsoft/TRELLIS.2", verbose=False)
-    try: c.predict(api_name="/start_session")
-    except Exception as e: print("start_session:", e)
-    pre = c.predict(input=handle_file(img), api_name="/preprocess_image")
-    info = c.view_api(return_format="dict", print_info=False)["named_endpoints"]["/image_to_3d"]["parameters"]
-    print("t2 params:", [p["parameter_name"] for p in info])
-    c.predict(image=handle_file(pre if isinstance(pre, str) else pre["path"]), api_name="/image_to_3d")
-    return c.predict(decimation_target=200000, texture_size=1024, api_name="/extract_glb")
-
-run("TRELLIS", trellis)
-run("Hunyuan3D-2.1", hy21)
-run("TRELLIS.2", trellis2)
+def call(api, data):
+    r = requests.post(f"{A}/call/{api}", json={"data": data, "session_hash": sh})
+    print("call", api, r.status_code, r.text[:200])
+    eid = r.json()["event_id"]
+    ev = None
+    with requests.get(f"{A}/call/{api}/{eid}", stream=True) as s:
+        for line in s.iter_lines(decode_unicode=True):
+            if not line: continue
+            if line.startswith("event:"): ev = line[6:].strip()
+            elif line.startswith("data:"):
+                d = line[5:].strip()
+                if ev in ("complete", "error"):
+                    print("  ", ev, d[:600]); return ev, d
+t = time.time()
+call("start_session", [])
+ev, d = call("preprocess_image", [fd(up[0])])
+pre = json.loads(d)[0]
+ev, d = call("generate_and_extract_glb", [fd(pre["path"]), [], 0, 7.5, 12, 3, 12, "stochastic", 0.95, 1024])
+print("elapsed", time.time() - t)
+if ev == "complete":
+    res = json.loads(d)
+    print("result types:", [type(x).__name__ for x in res])
+    for x in res:
+        if isinstance(x, dict) and str(x.get("path", "")).endswith(".glb"):
+            for url in (x.get("url"), f"{A}/file={x['path']}"):
+                r = requests.get(url); print("download", url[:120], r.status_code, len(r.content))
