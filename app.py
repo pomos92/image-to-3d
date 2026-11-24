@@ -8,6 +8,7 @@ if getattr(sys, "frozen", False):  # exe 로 실행 중이면 결과 폴더를 e
 
 import gradio as gr
 
+import img23d  # noqa: F401  (콘솔 인코딩 설정)
 from img23d import generate
 
 ENGINES = {
