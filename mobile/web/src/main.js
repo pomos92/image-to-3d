@@ -3,9 +3,10 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { fixMaterials, projectPhoto, beginStroke, paintAt, pickColor, undo as undoColor, clearUndo } from "./paint.js";
+import { fixMaterials, adjustColors, projectPhoto, beginStroke, paintAt, pickColor, undo as undoColor, clearUndo } from "./paint.js";
 import { buildMesh, extractMask } from "./engine.js";
-import { autoRig, makeJointMarkers, JOINT_LABELS } from "./rig.js";
+import { autoRig, makeJointMarkers, JOINT_LABELS, PARENT } from "./rig.js";
+import { showParts, paintPart, snapshotParts, restoreParts, partColor } from "./parts.js";
 
 const $ = (id) => document.getElementById(id);
 const status = (t) => { $("status").textContent = t; };
@@ -21,10 +22,13 @@ const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
 camera.position.set(0, 0.1, 2.4);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
-const sun = new THREE.DirectionalLight(0xffffff, 1.6);
-sun.position.set(1, 2, 3);
-scene.add(sun);
+// 조명: 은은한 전체광 + 카메라를 따라다니는 정면광(돌려 봐도 보는 쪽이 어둡지 않게)
+scene.add(new THREE.HemisphereLight(0xffffff, 0xb0b8c4, 2.2));
+scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+const headLight = new THREE.DirectionalLight(0xffffff, 1.5);
+headLight.position.set(0.4, 0.6, 1);
+camera.add(headLight);
+scene.add(camera);
 let current = null;
 
 function resize() {
@@ -108,6 +112,11 @@ function showModel(obj) {
 // ---------- 관절(뼈대) ----------
 function clearRig() {
   if (markers) { scene.remove(markers); markers = null; }
+  if (typeof editGroup !== "undefined" && editGroup) { scene.remove(editGroup); editGroup = null; }
+  editing = parting = false;
+  $("editctl").hidden = $("partctl").hidden = true;
+  $("editjoints").classList.remove("primary");
+  $("editparts").classList.remove("primary");
   rig = null; selectedJoint = null;
   $("rigctl").hidden = true;
   $("rig").hidden = false;
@@ -116,6 +125,7 @@ function clearRig() {
 function selectJoint(name) {
   selectedJoint = name;
   $("joint").value = name;
+  $("jointswatch").style.background = "#" + partColor(rig.order.indexOf(name)).getHexString();
   const b = rig.bones[name];
   const e = new THREE.Euler().setFromQuaternion(b.quaternion.clone().multiply(rig.root.userData.restPose[name].clone().invert()));
   $("rx").value = THREE.MathUtils.radToDeg(e.x).toFixed(0);
@@ -163,24 +173,32 @@ const POSES = {
   },
 };
 
+function applyRig(joints) {
+  if (current) showParts(current, false);
+  const r = autoRig(current, joints ? { joints } : {});
+  scene.remove(current);
+  current = r.root;
+  scene.add(current);
+  rig = r;
+  clearUndo();
+  partUndo.length = 0;
+  if (markers) scene.remove(markers);
+  const box = new THREE.Box3().setFromObject(current), size = new THREE.Vector3();
+  box.getSize(size);
+  modelH = Math.max(size.x, size.y, size.z);
+  markers = makeJointMarkers(r.bones, modelH);
+  scene.add(markers);
+  $("joint").innerHTML = r.order.map((n) => `<option value="${n}">${JOINT_LABELS[n]}</option>`).join("");
+  selectJoint(selectedJoint && r.bones[selectedJoint] ? selectedJoint : "shoulderR");
+  $("rig").hidden = true;
+  $("rigctl").hidden = false;
+}
+
 $("rig").addEventListener("click", () => {
   if (!current) return;
   try {
-    const r = autoRig(current);
-    scene.remove(current);
-    current = r.root;
-    scene.add(current);
-    rig = r;
-    clearUndo();
-    const box = new THREE.Box3().setFromObject(current), size = new THREE.Vector3();
-    box.getSize(size);
-    markers = makeJointMarkers(r.bones, Math.max(size.x, size.y, size.z));
-    scene.add(markers);
-    $("joint").innerHTML = r.order.map((n) => `<option value="${n}">${JOINT_LABELS[n]}</option>`).join("");
-    selectJoint("shoulderR");
-    $("rig").hidden = true;
-    $("rigctl").hidden = false;
-    status("뼈대를 넣었어요. 주황 점(관절)을 누르거나 목록에서 골라 슬라이더로 움직여 보세요.");
+    applyRig(null);
+    status("뼈대를 넣었어요. 관절이 안 맞으면 '관절 위치 고치기'로 점을 끌어 옮기세요.");
   } catch (e) {
     status("뼈대 넣기 실패: " + e.message);
   }
@@ -193,7 +211,7 @@ document.querySelectorAll("[data-pose]").forEach((b) => b.addEventListener("clic
 let downAt = null;
 renderer.domElement.addEventListener("pointerdown", (e) => { downAt = [e.clientX, e.clientY]; });
 renderer.domElement.addEventListener("pointerup", (e) => {
-  if (painting) return;
+  if (painting || editing || parting) return;
   if (!markers || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
   const r = renderer.domElement.getBoundingClientRect();
   const v = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
@@ -219,6 +237,8 @@ function setBusy(b) {
 const hasBridge = !!(window.AndroidBridge && window.AndroidBridge.aiGenerate);
 if (!hasBridge) $("ai").title = "안드로이드 앱에서만 쓸 수 있어요";
 try { $("hftoken").value = localStorage.getItem("hfToken") || ""; } catch (e) {}
+// 앱에 기본 토큰이 들어 있으면(config.js) 비워 둬도 그걸 쓴다
+if (window.DEFAULT_HF_TOKEN) $("hftoken").placeholder = "비워 두면 앱에 들어 있는 토큰을 써요";
 $("hftoken").addEventListener("change", () => { try { localStorage.setItem("hfToken", $("hftoken").value.trim()); } catch (e) {} });
 
 function aiImage() {
@@ -270,7 +290,7 @@ $("ai").addEventListener("click", () => {
   aiStart = performance.now();
   status("AI 준비 중...");
   const { b64, name } = aiImage();
-  window.AndroidBridge.aiGenerate(b64, name, $("hftoken").value.trim());
+  window.AndroidBridge.aiGenerate(b64, name, $("hftoken").value.trim() || window.DEFAULT_HF_TOKEN || "");
 });
 
 // ---------- 3D 만들기 ----------
@@ -447,11 +467,18 @@ function printableClone(sizeMm) {
 
 document.querySelectorAll("[data-fmt]").forEach((btn) => btn.addEventListener("click", () => {
   if (!current) return;
+  // 부위 보기 중이면 원래 색으로 돌려서 저장
+  const wasParting = parting;
+  if (wasParting) showParts(current, false);
+  Promise.resolve().then(() => exportAs(btn.dataset.fmt))
+    .catch((e) => status("저장 실패: " + (e && e.message ? e.message : e)))
+    .finally(() => { if (wasParting && parting) showParts(current, true); });
+}));
+
+function exportAs(fmt) {
   const name = stamp();
-  const fmt = btn.dataset.fmt;
   if (fmt === "glb") {
-    new GLTFExporter().parse(current, (glb) => saveFile(name + ".glb", glb, "model/gltf-binary"),
-      (e) => status("GLB 저장 실패: " + e), { binary: true });
+    return new GLTFExporter().parseAsync(current, { binary: true }).then((glb) => saveFile(name + ".glb", glb, "model/gltf-binary"));
   } else if (fmt === "stl") {
     const mm = Number($("sizemm").value) || 100;
     const dv = new STLExporter().parse(printableClone(mm), { binary: true });
@@ -459,18 +486,19 @@ document.querySelectorAll("[data-fmt]").forEach((btn) => btn.addEventListener("c
   } else if (fmt === "obj") {
     saveFile(name + ".obj", exportColoredObj(current), "text/plain");
   }
-}));
+}
 
 // ---------- 색 입히기 ----------
 let modelPhoto = null, painting = false, picking = false, stroking = false;
 const raycaster = new THREE.Raycaster();
 
 function setPaint(on) {
+  if (on && editing) setEditing(false);
+  if (on && parting) setParting(false);
   painting = on;
   picking = false;
-  controls.enabled = !on;
   $("paintctl").hidden = !on;
-  $("painttoggle").innerHTML = on ? "칠하기 끝<br><small>다시 돌려 볼 수 있어요</small>" : "직접 칠하기<br><small>손가락으로 칠해요</small>";
+  $("painttoggle").innerHTML = on ? "칠하기 끝" : "직접 칠하기<br><small>손가락으로 칠해요</small>";
   $("painttoggle").classList.toggle("primary", on);
 }
 
@@ -520,6 +548,7 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   if (!painting) return;
   const hit = hitAt(e);
   if (!hit) return;
+  e.stopImmediatePropagation(); // 모델 위는 칠하기, 빈 곳은 화면 돌리기
   if (picking) {
     const c = pickColor(hit);
     if (c) { $("pcolor").value = "#" + c.getHexString(THREE.NoColorSpace); status("이 색으로 칠할게요."); }
@@ -530,12 +559,168 @@ renderer.domElement.addEventListener("pointerdown", (e) => {
   renderer.domElement.setPointerCapture(e.pointerId);
   beginStroke(current);
   paintAt(hit, new THREE.Color().setStyle($("pcolor").value, THREE.NoColorSpace), Number($("psize").value) / 200);
-});
+}, { capture: true });
 renderer.domElement.addEventListener("pointermove", (e) => {
   if (!painting || !stroking) return;
   const hit = hitAt(e);
   if (hit) paintAt(hit, new THREE.Color().setStyle($("pcolor").value, THREE.NoColorSpace), Number($("psize").value) / 200);
-});
+}, { capture: true });
 const endStroke = () => { stroking = false; };
 renderer.domElement.addEventListener("pointerup", endStroke);
 renderer.domElement.addEventListener("pointercancel", endStroke);
+
+// ---------- 관절 위치 고치기 · 부위 나누기 ----------
+let editing = false, parting = false, editJoints = null, editGroup = null, dragJoint = null, modelH = 1;
+let partStroke = false;
+const partUndo = [];
+const dragPlane = new THREE.Plane();
+
+function ndcOf(e) {
+  const r = renderer.domElement.getBoundingClientRect();
+  return new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+}
+// 화면에서 손가락 가까이(28px 이내)에 있는 관절
+function jointNear(e, posOf) {
+  const r = renderer.domElement.getBoundingClientRect();
+  let best = null, bd = 28;
+  for (const n of rig.order) {
+    const p = posOf(n).clone().project(camera);
+    const x = (p.x + 1) / 2 * r.width + r.left, y = (1 - p.y) / 2 * r.height + r.top;
+    const d = Math.hypot(x - e.clientX, y - e.clientY);
+    if (d < bd) { bd = d; best = n; }
+  }
+  return best;
+}
+
+function buildEditGroup() {
+  if (editGroup) scene.remove(editGroup);
+  editGroup = new THREE.Group();
+  const geo = new THREE.SphereGeometry(0.018 * modelH, 14, 10);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff6a00, depthTest: false });
+  const sel = new THREE.MeshBasicMaterial({ color: 0x1e88ff, depthTest: false });
+  const balls = {};
+  for (const n of rig.order) {
+    const m = new THREE.Mesh(geo, mat);
+    m.renderOrder = 1000;
+    m.userData.isMarker = true;
+    balls[n] = m;
+    editGroup.add(m);
+  }
+  const lineGeo = new THREE.BufferGeometry();
+  const pairs = rig.order.filter((n) => PARENT[n]);
+  lineGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(pairs.length * 6), 3));
+  const lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ color: 0xff6a00, depthTest: false }));
+  lines.renderOrder = 999;
+  editGroup.add(lines);
+  editGroup.userData.refresh = () => {
+    for (const n of rig.order) {
+      balls[n].position.fromArray(editJoints[n]);
+      balls[n].material = n === selectedJoint ? sel : mat;
+    }
+    const a = lineGeo.attributes.position;
+    pairs.forEach((n, i) => { a.setXYZ(2 * i, ...editJoints[n]); a.setXYZ(2 * i + 1, ...editJoints[PARENT[n]]); });
+    a.needsUpdate = true;
+  };
+  editGroup.userData.refresh();
+  scene.add(editGroup);
+}
+
+function setEditing(on) {
+  if (on && parting) setParting(false);
+  if (on) setPaint(false);
+  editing = on;
+  $("editctl").hidden = !on;
+  $("editjoints").classList.toggle("primary", on);
+  if (on) {
+    setPose(POSES.reset);
+    editJoints = {};
+    for (const n of rig.order) editJoints[n] = rig.joints[n].slice();
+    markers.visible = false;
+    buildEditGroup();
+    status("점을 끌어서 관절 위치를 맞추세요. 다 되면 '이 위치로 뼈대 다시 넣기'.");
+  } else {
+    if (editGroup) { scene.remove(editGroup); editGroup = null; }
+    if (markers) markers.visible = true;
+    dragJoint = null;
+  }
+}
+
+function setParting(on) {
+  if (on && editing) setEditing(false);
+  if (on) setPaint(false);
+  parting = on;
+  $("partctl").hidden = !on;
+  $("editparts").classList.toggle("primary", on);
+  showParts(current, on);
+  if (on) status("색깔별 덩어리가 관절마다 나뉜 모습이에요. 관절을 고르고 문질러서 고치세요.");
+}
+
+$("editjoints").addEventListener("click", () => rig && setEditing(!editing));
+$("editcancel").addEventListener("click", () => { setEditing(false); status("관절 위치 고치기를 취소했어요."); });
+$("editapply").addEventListener("click", () => {
+  const j = editJoints;
+  setEditing(false);
+  try {
+    applyRig(j);
+    status("새 관절 위치로 뼈대를 다시 넣었어요. 덩어리가 이상하면 '부위 나누기'로 고치세요.");
+  } catch (e) { status("뼈대 다시 넣기 실패: " + e.message); }
+});
+$("editparts").addEventListener("click", () => rig && setParting(!parting));
+$("partdone").addEventListener("click", () => { setParting(false); status("부위 나누기를 마쳤어요. 포즈 버튼이나 슬라이더로 확인해 보세요."); });
+$("partundo").addEventListener("click", () => {
+  const s = partUndo.pop();
+  if (s) { restoreParts(s); status("되돌렸어요."); } else status("되돌릴 게 없어요.");
+});
+
+// 관절 끌기/부위 칠하기는 화면 돌리기보다 먼저 받아서, 모델·점 위를 누르면 화면이 안 돌게 한다
+renderer.domElement.addEventListener("pointerdown", (e) => {
+  if (!rig || !(editing || parting)) return;
+  if (editing) {
+    const n = jointNear(e, (k) => new THREE.Vector3().fromArray(editJoints[k]));
+    if (!n) return;
+    e.stopImmediatePropagation();
+    dragJoint = n;
+    selectJoint(n);
+    editGroup.userData.refresh();
+    const p = new THREE.Vector3().fromArray(editJoints[n]);
+    dragPlane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), p);
+    renderer.domElement.setPointerCapture(e.pointerId);
+    return;
+  }
+  // parting
+  const n = jointNear(e, (k) => rig.bones[k].getWorldPosition(new THREE.Vector3()));
+  if (n) { e.stopImmediatePropagation(); selectJoint(n); status(JOINT_LABELS[n] + " 선택됨 · 이제 모델을 문질러 칠하세요"); return; }
+  const hit = hitAt(e);
+  if (!hit || !hit.object.isSkinnedMesh) return;
+  e.stopImmediatePropagation();
+  partUndo.push(snapshotParts(current));
+  if (partUndo.length > 6) partUndo.shift();
+  partStroke = true;
+  renderer.domElement.setPointerCapture(e.pointerId);
+  paintPart(hit, rig.order.indexOf(selectedJoint), Number($("partsize").value) / 200);
+}, { capture: true });
+
+renderer.domElement.addEventListener("pointermove", (e) => {
+  if (editing && dragJoint) {
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(ndcOf(e), camera);
+    const p = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(dragPlane, p)) return;
+    editJoints[dragJoint] = [p.x, p.y, p.z];
+    if ($("mirror").checked && /[LR]$/.test(dragJoint)) {
+      const other = dragJoint.slice(0, -1) + (dragJoint.endsWith("L") ? "R" : "L");
+      const cx = editJoints.hips[0];
+      editJoints[other] = [2 * cx - p.x, p.y, p.z];
+    }
+    editGroup.userData.refresh();
+  } else if (parting && partStroke) {
+    const hit = hitAt(e);
+    if (hit && hit.object.isSkinnedMesh) paintPart(hit, rig.order.indexOf(selectedJoint), Number($("partsize").value) / 200);
+  }
+}, { capture: true });
+const endEdit = () => { dragJoint = null; partStroke = false; };
+renderer.domElement.addEventListener("pointerup", endEdit);
+renderer.domElement.addEventListener("pointercancel", endEdit);
+
+$("brighter").addEventListener("click", () => { if (current) { adjustColors(current, 1.18, 1.05); status("색을 밝게 했어요. 저장하면 파일에도 그대로 들어가요."); } });
+$("darker").addEventListener("click", () => { if (current) { adjustColors(current, 1 / 1.18, 1); status("색을 조금 어둡게 했어요."); } });

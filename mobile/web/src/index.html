@@ -28,6 +28,7 @@
   select, input[type=number] { font: inherit; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
   #save h2 { font-size: 15px; margin: 18px 0 0; }
   #save small { color: var(--muted); }
+  .hint { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -72,6 +73,10 @@
       <button id="photocolor">사진 색 입히기<br><small>원본 사진 색을 다시 입혀요</small></button>
       <button id="painttoggle">직접 칠하기<br><small>손가락으로 칠해요</small></button>
     </div>
+    <div class="row">
+      <button id="brighter">밝게</button>
+      <button id="darker">어둡게</button>
+    </div>
     <label>사진 색 세기 <input id="pstrength" type="range" min="10" max="100" step="5" value="100"><span id="pstrengthv">100%</span></label>
     <label>뒷면에도 입히기 <input id="pback" type="checkbox"></label>
     <div id="paintctl" hidden>
@@ -82,14 +87,28 @@
       </div>
     </div>
     <div class="row"><button id="pundo">색 되돌리기</button></div>
-    <p style="margin:8px 0 0;font-size:13px;color:var(--muted)">칠하는 중에는 한 손가락이 붓이 돼요. 돌려 보려면 '칠하기 끝'을 누르세요. 칠한 색은 GLB·OBJ에 그대로 저장돼요.</p>
+    <p style="margin:8px 0 0;font-size:13px;color:var(--muted)">칠하는 중에는 모델 위를 문지르면 칠해지고, 빈 곳을 끌면 화면이 돌아가요. 칠한 색은 GLB·OBJ에 그대로 저장돼요.</p>
   </div>
 
   <div id="rigbox" hidden>
     <h2 style="font-size:15px;margin:18px 0 0">관절 <small style="color:var(--muted)">(서 있는 캐릭터용)</small></h2>
     <div class="row"><button id="rig">뼈대(관절) 넣기</button></div>
     <div id="rigctl" hidden>
-      <label>관절 <select id="joint"></select></label>
+      <div class="row">
+        <button id="editjoints">관절 위치 고치기<br><small>점을 끌어서 옮겨요</small></button>
+        <button id="editparts">부위 나누기<br><small>관절마다 칠해서 나눠요</small></button>
+      </div>
+      <div id="editctl" hidden>
+        <p class="hint">주황 점을 손가락으로 끌어 진짜 관절 위치에 놓으세요. 빈 곳을 끌면 화면이 돌아가요(옆에서 보고 앞뒤 위치도 맞출 수 있어요).</p>
+        <label>좌우 같이 움직이기 <input id="mirror" type="checkbox"></label>
+        <div class="row"><button id="editapply" class="primary">이 위치로 뼈대 다시 넣기</button><button id="editcancel">취소</button></div>
+      </div>
+      <div id="partctl" hidden>
+        <p class="hint">색깔 하나가 관절 하나에 붙은 덩어리예요. 아래 목록이나 점을 눌러 관절을 고른 뒤 모델을 문지르면, 칠한 곳이 그 관절에 붙어요. 빈 곳(모델 밖)을 끌면 화면이 돌아가요.</p>
+        <label>붓 크기 <input id="partsize" type="range" min="1" max="20" value="4"></label>
+        <div class="row"><button id="partundo">되돌리기</button><button id="partdone" class="primary">나누기 끝</button></div>
+      </div>
+      <label>관절 <span style="display:flex;align-items:center;gap:8px"><span id="jointswatch" style="width:18px;height:18px;border-radius:4px;display:inline-block"></span><select id="joint"></select></span></label>
       <label>앞뒤로 <input id="rx" type="range" min="-120" max="120" value="0"></label>
       <label>비틀기 <input id="ry" type="range" min="-120" max="120" value="0"></label>
       <label>옆으로 <input id="rz" type="range" min="-120" max="120" value="0"></label>
@@ -112,6 +131,7 @@
     </div>
   </div>
 </main>
+<script src="config.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

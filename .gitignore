@@ -1,6 +1,7 @@
 .venv/
-outputs/
-smoke/
 __pycache__/
 build/
+config.js
 dist/
+outputs/
+smoke/

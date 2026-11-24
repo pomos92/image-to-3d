@@ -369,3 +369,24 @@ export function pickColor(hit) {
   const o = (y * cv.width + x) * 4;
   return new THREE.Color(s.rgb[o] / 255, s.rgb[o + 1] / 255, s.rgb[o + 2] / 255);
 }
+
+// ---- 밝기·채도 조절 (텍스처/정점 색 전체). gain>1 이면 밝게(어두운 곳을 더 많이 올림) ----
+export function adjustColors(root, gain, sat = 1) {
+  const list = meshesOf(root).map(surfaceOf);
+  snapshot(list);
+  const g = 1 / gain;
+  const lut = new Uint8ClampedArray(256);
+  for (let i = 0; i < 256; i++) lut[i] = Math.round(255 * Math.pow(i / 255, g));
+  for (const s of list) {
+    const d = s.rgb;
+    for (let o = 0; o < d.length; o += 4) {
+      let r = lut[d[o]], gg = lut[d[o + 1]], b = lut[d[o + 2]];
+      if (sat !== 1) {
+        const y = 0.299 * r + 0.587 * gg + 0.114 * b;
+        r = y + (r - y) * sat; gg = y + (gg - y) * sat; b = y + (b - y) * sat;
+      }
+      d[o] = r; d[o + 1] = gg; d[o + 2] = b;
+    }
+    s.commit();
+  }
+}

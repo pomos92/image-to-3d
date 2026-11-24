@@ -12,7 +12,7 @@ export const JOINT_LABELS = {
 };
 
 // 부모 관계
-const PARENT = {
+export const PARENT = {
   hips: null, spine: "hips", chest: "spine", neck: "chest", head: "neck",
   shoulderL: "chest", elbowL: "shoulderL", handL: "elbowL",
   shoulderR: "chest", elbowR: "shoulderR", handR: "elbowR",
@@ -25,16 +25,25 @@ const ORDER = Object.keys(PARENT);
 function collectMesh(root) {
   root.updateMatrixWorld(true);
   const meshes = [];
-  root.traverse((o) => { if (o.isMesh && !o.isSkinnedMesh) meshes.push(o); });
+  // 이미 뼈대가 있는 모델(SkinnedMesh)도 처음 자세 그대로 다시 쓸 수 있다
+  root.traverse((o) => { if (o.isMesh && !o.userData.isMarker) meshes.push(o); });
   if (!meshes.length) throw new Error("3D 모델이 없어요.");
   // 가장 큰 메쉬 하나를 기준(재질)으로, 나머지는 위치만 합쳐도 대부분 충분하지만
   // 재질이 여러 개면 그룹으로 유지한다.
   const geos = [], mats = [];
   for (const m of meshes) {
     const g = m.geometry.clone();
+    g.deleteAttribute("skinIndex");
+    g.deleteAttribute("skinWeight");
+    if (m.userData.partBackup) {
+      // 부위 보기 중이면 원래 색으로
+      if (m.userData.partBackup.color) g.setAttribute("color", m.userData.partBackup.color.clone());
+      else g.deleteAttribute("color");
+    }
     g.applyMatrix4(m.matrixWorld);
     geos.push(g);
-    mats.push(Array.isArray(m.material) ? m.material[0] : m.material);
+    const mat = m.userData.partBackup ? m.userData.partBackup.material : m.material;
+    mats.push(Array.isArray(mat) ? mat[0] : mat);
   }
   return { geos, mats };
 }
@@ -203,15 +212,22 @@ function boneSegments(joints, H) {
 }
 
 // ---- 메인: object(Group/Mesh) → { root(Group), skinned(SkinnedMesh), bones(map) } ----
-export function autoRig(object) {
+// opts.joints: 사용자가 옮긴 관절 위치(월드 좌표)가 있으면 그것을 쓴다
+export function autoRig(object, opts = {}) {
   const { geos, mats } = collectMesh(object);
   // 모든 정점을 모아 관절 추정
   let total = 0;
   for (const g of geos) total += g.attributes.position.count;
   const allPos = new Float32Array(total * 3);
   let off = 0;
-  for (const g of geos) { allPos.set(g.attributes.position.array.slice(0, g.attributes.position.count * 3), off); off += g.attributes.position.count * 3; }
-  const { joints, H } = estimateJoints(allPos);
+  for (const g of geos) {
+    const P = g.attributes.position;
+    for (let i = 0; i < P.count; i++) { allPos[off++] = P.getX(i); allPos[off++] = P.getY(i); allPos[off++] = P.getZ(i); }
+  }
+  const est = estimateJoints(allPos);
+  const H = est.H;
+  const joints = {};
+  for (const n of ORDER) joints[n] = (opts.joints && opts.joints[n] ? opts.joints[n] : est.joints[n]).slice();
   const segs = boneSegments(joints, H);
 
   // 뼈 만들기 (위치는 부모 기준 상대 좌표)
@@ -308,6 +324,7 @@ export function makeJointMarkers(bones, H = 1) {
     const m = new THREE.Mesh(geo, mat);
     m.renderOrder = 999;
     m.userData.joint = name;
+    m.userData.isMarker = true;
     markers[name] = m;
     g.add(m);
   }
