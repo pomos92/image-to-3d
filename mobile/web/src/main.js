@@ -54,6 +54,7 @@ function fitView() {
   controls.update();
 }
 window.addEventListener("resize", resize);
+if (window.ResizeObserver) new ResizeObserver(() => resize()).observe(view);
 resize();
 let rig = null, markers = null, selectedJoint = null;
 (function loop() {
@@ -495,7 +496,7 @@ $("pstrength").addEventListener("input", () => { $("pstrengthv").textContent = $
 $("painttoggle").addEventListener("click", () => {
   if (!current) return;
   setPaint(!painting);
-  if (painting) status("모델 위를 손가락으로 문질러 칠하세요.");
+  if (painting) { status("모델 위를 손가락으로 문질러 칠하세요."); $("colorbox").scrollIntoView({ behavior: "smooth", block: "start" }); }
 });
 $("ppick").addEventListener("click", () => { picking = true; status("모델에서 색을 가져올 곳을 누르세요."); });
 $("pundo").addEventListener("click", () => status(undoColor() ? "되돌렸어요." : "되돌릴 게 없어요."));
@@ -617,6 +618,7 @@ function setEditing(on) {
     for (const n of rig.order) editJoints[n] = rig.joints[n].slice();
     markers.visible = false;
     buildEditGroup();
+    $("rigbox").scrollIntoView({ behavior: "smooth", block: "start" });
     status("점을 끌어서 관절 위치를 맞추세요. 다 되면 '이 위치로 뼈대 다시 넣기'.");
   } else {
     if (editGroup) { scene.remove(editGroup); editGroup = null; }
@@ -632,6 +634,7 @@ function setParting(on) {
   $("partctl").hidden = !on;
   $("editparts").classList.toggle("primary", on);
   showParts(current, on);
+  if (on) $("rigbox").scrollIntoView({ behavior: "smooth", block: "start" });
   if (on) status("색깔별 덩어리가 관절마다 나뉜 모습이에요. 관절을 고르고 문질러서 고치세요.");
 }
 
