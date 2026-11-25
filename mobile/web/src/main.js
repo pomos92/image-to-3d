@@ -4,7 +4,7 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { STLExporter } from "three/examples/jsm/exporters/STLExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { fixMaterials, adjustColors, projectPhoto, beginStroke, paintAt, pickColor, undo as undoColor, clearUndo } from "./paint.js";
-import { buildMesh, extractMask } from "./engine.js";
+import { extractMask } from "./engine.js";
 import { autoRig, makeJointMarkers, JOINT_LABELS, PARENT } from "./rig.js";
 import { showParts, paintPart, snapshotParts, restoreParts, partColor } from "./parts.js";
 
@@ -75,12 +75,11 @@ $("file").addEventListener("change", async (e) => {
     $("preview").hidden = false;
     $("pick").textContent = "다른 사진 고르기";
     setBusy(false);
-    status("'AI로 만들기'(고품질, 인터넷 필요) 또는 '빠른 3D'(휴대폰 안에서)를 눌러 주세요.");
+    status("'AI로 3D 만들기'를 눌러 주세요.");
   };
   img.src = url;
 });
 $("pick").addEventListener("click", () => $("file").click());
-$("thick").addEventListener("input", () => { $("thickv").textContent = Number($("thick").value).toFixed(2); });
 
 function imageData(maxSide) {
   const s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
@@ -228,7 +227,6 @@ renderer.domElement.addEventListener("pointerup", (e) => {
 });
 
 function setBusy(b) {
-  $("make").disabled = b || !img;
   $("ai").disabled = b || !img;
   $("pick").disabled = b;
 }
@@ -291,42 +289,6 @@ $("ai").addEventListener("click", () => {
   status("AI 준비 중...");
   const { b64, name } = aiImage();
   window.AndroidBridge.aiGenerate(b64, name, $("hftoken").value.trim() || window.DEFAULT_HF_TOKEN || "");
-});
-
-// ---------- 3D 만들기 ----------
-$("make").addEventListener("click", () => {
-  if (!img) return;
-  setBusy(true);
-  status("3D 만드는 중... (몇 초 걸려요)");
-  setTimeout(() => {
-    try {
-      const t0 = performance.now();
-      const { data, w, h } = imageData(640);
-      const res = Number($("quality").value);
-      const m = buildMesh(data, w, h, {
-        removeBg: $("removebg").checked,
-        resolution: res,
-        thickness: Number($("thick").value),
-      });
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.BufferAttribute(m.positions, 3));
-      // 이미지 색(sRGB)을 3D 렌더링용 선형 색으로 변환
-      const lin = new Float32Array(m.colors.length);
-      for (let i = 0; i < lin.length; i++) lin[i] = Math.pow(m.colors[i], 2.2);
-      geo.setAttribute("color", new THREE.BufferAttribute(lin, 3));
-      geo.setIndex(new THREE.BufferAttribute(m.indices, 1));
-      geo.computeVertexNormals();
-      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0 });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.name = "model";
-      showModel(mesh);
-      status(`완료! ${(m.indices.length / 3).toLocaleString()}개 삼각형 · ${((performance.now() - t0) / 1000).toFixed(1)}초. 손가락으로 돌려 보세요.`);
-    } catch (err) {
-      status("실패: " + (err && err.message ? err.message : err));
-    } finally {
-      setBusy(false);
-    }
-  }, 50);
 });
 
 // ---------- 저장 ----------
