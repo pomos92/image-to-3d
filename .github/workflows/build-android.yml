@@ -23,7 +23,7 @@ jobs:
           npm install --no-audit --no-fund
           npm run build
           mkdir -p ../android/app/src/main/assets/www
-          cp dist/* ../android/app/src/main/assets/www/
+          cp -r dist/* ../android/app/src/main/assets/www/
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

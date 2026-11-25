@@ -17,7 +17,7 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffe
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 view.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf2f3f5);
+scene.background = new THREE.Color(0x1b1a18);
 const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
 camera.position.set(0, 0.1, 2.4);
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -72,14 +72,16 @@ $("file").addEventListener("change", async (e) => {
   img = new Image();
   img.onload = () => {
     $("preview").src = url;
-    $("preview").hidden = false;
-    $("pick").textContent = "다른 사진 고르기";
+    $("photo").src = url;
+    $("photo").hidden = false;
+    view.classList.add("has-photo");
     setBusy(false);
     status("'AI로 3D 만들기'를 눌러 주세요.");
   };
   img.src = url;
 });
 $("pick").addEventListener("click", () => $("file").click());
+$("picker").addEventListener("click", () => $("file").click());
 
 function imageData(maxSide) {
   const s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
@@ -98,6 +100,8 @@ function showModel(obj) {
   }
   current = obj;
   scene.add(current);
+  view.classList.add("has-model");
+  resize();
   fitView();
   $("save").hidden = false;
   clearRig();
