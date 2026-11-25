@@ -234,10 +234,24 @@ function setBusy(b) {
 // ---------- AI로 만들기 (클라우드, 앱 전용) ----------
 const hasBridge = !!(window.AndroidBridge && window.AndroidBridge.aiGenerate);
 if (!hasBridge) $("ai").title = "안드로이드 앱에서만 쓸 수 있어요";
-try { $("hftoken").value = localStorage.getItem("hfToken") || ""; } catch (e) {}
-// 앱에 기본 토큰이 들어 있으면(config.js) 비워 둬도 그걸 쓴다
+// 토큰은 이 폰(앱 저장소)에만 저장되고, 앱을 다시 켜도 유지된다
+function savedToken() { try { return localStorage.getItem("hfToken") || ""; } catch (e) { return ""; } }
+function showTokenState() {
+  const t = savedToken();
+  $("tokenstate").textContent = t ? "✓ 이 폰에 저장됨 (" + t.slice(0, 5) + "…)" : (window.DEFAULT_HF_TOKEN ? "앱에 들어 있는 기본 토큰을 써요" : "저장된 토큰 없음 · 넣으면 AI를 더 많이 쓸 수 있어요");
+}
+$("hftoken").value = savedToken();
 if (window.DEFAULT_HF_TOKEN) $("hftoken").placeholder = "비워 두면 앱에 들어 있는 토큰을 써요";
-$("hftoken").addEventListener("change", () => { try { localStorage.setItem("hfToken", $("hftoken").value.trim()); } catch (e) {} });
+function storeToken() {
+  const t = $("hftoken").value.trim();
+  if (t && !/^hf_[A-Za-z0-9]{20,}$/.test(t)) { $("tokenstate").textContent = "토큰 모양이 이상해요. hf_로 시작하는지 확인해 주세요."; return; }
+  try { if (t) localStorage.setItem("hfToken", t); else localStorage.removeItem("hfToken"); } catch (e) {}
+  showTokenState();
+}
+$("hftoken").addEventListener("change", storeToken);
+$("tokensave").addEventListener("click", storeToken);
+$("tokenclear").addEventListener("click", () => { $("hftoken").value = ""; storeToken(); });
+showTokenState();
 
 function aiImage() {
   // 긴 변 1024px. 투명 배경이 있으면 PNG, 아니면 JPEG
@@ -288,7 +302,7 @@ $("ai").addEventListener("click", () => {
   aiStart = performance.now();
   status("AI 준비 중...");
   const { b64, name } = aiImage();
-  window.AndroidBridge.aiGenerate(b64, name, $("hftoken").value.trim() || window.DEFAULT_HF_TOKEN || "");
+  window.AndroidBridge.aiGenerate(b64, name, savedToken() || window.DEFAULT_HF_TOKEN || "");
 });
 
 // ---------- 저장 ----------

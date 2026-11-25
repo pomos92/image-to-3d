@@ -52,6 +52,8 @@
     <label style="display:block">Hugging Face 토큰 <small>(선택 · AI 무료 사용량 늘리기)</small>
       <input id="hftoken" type="password" placeholder="hf_로 시작하는 토큰" autocomplete="off" style="width:100%;margin-top:6px;font:inherit;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg)">
     </label>
+    <div class="row"><button id="tokensave">토큰 저장</button><button id="tokenclear">지우기</button></div>
+    <p id="tokenstate" style="margin:6px 0 0;font-size:13px"></p>
     <p style="margin:6px 0 0;font-size:13px;color:var(--muted)">토큰 없이도 하루 1~2번은 돼요. huggingface.co 무료 가입 → Settings → Access Tokens 에서 만들 수 있어요.</p>
     <label>STL 크기 (가장 긴 변, mm) <input id="sizemm" type="number" value="100" min="5" max="1000" style="width:90px"></label>
   </details>
