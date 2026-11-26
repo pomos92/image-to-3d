@@ -707,3 +707,6 @@ renderer.domElement.addEventListener("pointercancel", endEdit);
 
 $("brighter").addEventListener("click", () => { if (current) { adjustColors(current, 1.18, 1.05); status("색을 밝게 했어요. 저장하면 파일에도 그대로 들어가요."); } });
 $("darker").addEventListener("click", () => { if (current) { adjustColors(current, 1 / 1.18, 1); status("색을 조금 어둡게 했어요."); } });
+
+// 아래 칸(색 입히기·관절·저장)은 제목을 누르면 접고 펼 수 있다
+document.querySelectorAll(".panel > h2").forEach((h) => h.addEventListener("click", () => h.parentElement.classList.toggle("collapsed")));

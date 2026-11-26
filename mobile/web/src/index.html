@@ -59,6 +59,11 @@
   .panel { margin-top: 16px; border: 1px solid var(--line); border-radius: 18px; padding: 4px 16px 16px; background: var(--card); }
   .panel h2 { font-size: 17px; margin: 14px 0 0; }
   .panel h2 small { color: var(--muted); font-weight: 400; font-size: 13px; }
+  .panel > h2 { display:flex; align-items:center; gap:6px; cursor:pointer; padding: 4px 0; -webkit-user-select:none; user-select:none; }
+  .panel > h2::after { content:""; margin-left:auto; width:10px; height:10px; border-right:2.5px solid currentColor; border-bottom:2.5px solid currentColor; transform: rotate(-135deg) translate(-3px,-3px); transition: transform .2s; margin-right:4px; }
+  .panel.collapsed > h2::after { transform: rotate(45deg); }
+  .panel.collapsed > :not(h2) { display:none !important; }
+  .panel.collapsed { padding-bottom: 10px; }
   .hint { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
   .panel button:not(.primary), details button { background: var(--card2); }
 </style>
@@ -100,7 +105,7 @@
   <div class="net"><svg width="22" height="18" viewBox="0 0 22 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M1.5 6.5a14 14 0 0 1 19 0M4.8 10a9 9 0 0 1 12.4 0M8.2 13.4a4 4 0 0 1 5.6 0"/><circle cx="11" cy="16.3" r="1.2" fill="currentColor" stroke="none"/></svg>인터넷 연결 필요</div>
   <div id="status"></div>
 
-  <div id="colorbox" class="panel" hidden>
+  <div id="colorbox" class="panel collapsed" hidden>
     <h2>색 입히기</h2>
     <div class="row">
       <button id="photocolor">사진 색 입히기<br><small>원본 사진 색을 다시 입혀요</small></button>
